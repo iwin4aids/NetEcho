@@ -44,7 +44,7 @@ class Server implements AutoCloseable {
             ssChannel = ServerSocketChannel.open();
             ssChannel.configureBlocking(false);
             ssChannel.bind(new InetSocketAddress(port));
-            //ServerSocketChannel注册OP_ACCEPT兴趣事件
+            //ServerSocketChannel主要注册OP_ACCEPT兴趣事件
             ssChannel.register(selector, SelectionKey.OP_ACCEPT);
             System.out.println("NIO服务器端程序启动，该程序在" + port + "端口上进行监听...");
         } catch (IOException e) {
@@ -64,22 +64,15 @@ class Server implements AutoCloseable {
             while (it.hasNext()) {
                 SelectionKey key = it.next();
                 try {
-                    if (key.isConnectable()) {
-                        System.out.println("connect successfully...");
-                        SocketChannel socketChannel = (SocketChannel) key.channel();
-                        if (socketChannel.isConnectionPending()) {
-                            socketChannel.finishConnect();
-                        }
-                        System.out.println("与客户端TCP连接建立成功，，来自[：" + socketChannel.socket().getInetAddress() + ":" + socketChannel.socket().getPort() + "]");
-                    }
                     if (key.isAcceptable()) {
                         // OP_ACCEPT事件key中对应的是ServerSocketChannel，其它事件对应的是SocketChannel
                         ServerSocketChannel ssc = (ServerSocketChannel) key.channel();
                         SocketChannel socketChannel = ssc.accept();
-                        System.out.println("接收到客户数据包，来自[：" + socketChannel.socket().getInetAddress() + ":" + socketChannel.socket().getPort() + "]");
+                        System.out.println("接收到客户数据包，来自[" + socketChannel.socket().getInetAddress() + ":" + socketChannel.socket().getPort() + "]");
                         socketChannel.configureBlocking(false);
                         // 初始化缓冲区并放入key的附件
                         ByteBuffer buffer = ByteBuffer.allocate(1024);
+                        // 为selector注册当前channel的读写事件
                         socketChannel.register(selector, SelectionKey.OP_READ, buffer);
                     }
                     if (key.isReadable()) {
@@ -87,26 +80,18 @@ class Server implements AutoCloseable {
                         SocketChannel socketChannel = (SocketChannel) key.channel();
                         ByteBuffer buffer = (ByteBuffer) key.attachment();
                         buffer.clear();
-                        StringBuffer sb = new StringBuffer();
-                        int readCount;
-                        while ((readCount = socketChannel.read(buffer)) > 0) {
-                            buffer.flip();
-                            byte[] bytes = new byte[readCount];
-                            buffer.get(bytes);
-                            // 拼接合并channel中读到的bytes，针对客户端发送大报文在缓冲区存不下的情况处理
-                            sb.append(new String(bytes));
-                            buffer.clear();
-                        }
-                        System.out.println("客户端发送报文:" + sb.toString());
+                        int readCount = socketChannel.read(buffer);
+                        buffer.flip();
+                        String requestStr = StandardCharsets.UTF_8.decode(buffer).toString();
+                        System.out.println("接收到客户端发送报文:" + requestStr);
 
                         // 读取小于零代表客户端退出
                         if (readCount < 0) {
                             key.cancel();
                             socketChannel.close();
                         } else {
-                            doServerLogic(sb.toString(), key);
+                            doServerLogic(requestStr, key);
                         }
-
                     }
                 } catch (IOException e) {
                     e.printStackTrace();
@@ -115,12 +100,17 @@ class Server implements AutoCloseable {
                 }
             }
         }
-
     }
 
     private void doServerLogic(String requestStr, SelectionKey key) {
         SocketChannel socketChannel = (SocketChannel) key.channel();
         ByteBuffer buffer = (ByteBuffer) key.attachment();
+        try {
+            // 模拟业务执行时间
+            Thread.sleep(5000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
         byte[] responseBytes = ("【ECHO】: " + requestStr).getBytes(StandardCharsets.UTF_8);
         // 写缓存前先清空
         buffer.clear();

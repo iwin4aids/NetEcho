@@ -16,8 +16,7 @@ import java.nio.charset.StandardCharsets;
 public class NIOEchoClient {
     public static void main(String[] args) throws Exception {
         try (NIOClient client = new NIOClient()) {
-            String msg = InputUtil.getString("请输入要发送的内容：");
-            client.invokeServer(msg);
+            client.invokeServer();
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -33,11 +32,12 @@ class NIOClient implements AutoCloseable {
         this.clientChannel.connect(new InetSocketAddress(ServerInfo.SERVER_HOST, ServerInfo.SERVER_PORT));
     }
 
-    void invokeServer(String msg) throws Exception {    // 访问服务器端
+    void invokeServer() throws Exception {    // 访问服务器端
         ByteBuffer buffer = ByteBuffer.allocate(1024); // 开辟一个缓冲区
         boolean flag = true;
         while (flag) {
             buffer.clear(); // 清空缓冲区，因为该部分代码会重复执行
+            String msg = InputUtil.getString("请输入要发送的内容：");
             buffer.put(msg.getBytes(StandardCharsets.UTF_8)); // 将此数据保存在缓冲区之中
             buffer.flip(); // 重置缓冲区
             this.clientChannel.write(buffer); // 发送数据内容
