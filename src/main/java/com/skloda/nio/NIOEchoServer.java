@@ -64,15 +64,6 @@ class Server implements AutoCloseable {
             while (it.hasNext()) {
                 SelectionKey key = it.next();
                 try {
-                    if (key.isAcceptable()) {
-                        // OP_ACCEPT事件key中对应的是ServerSocketChannel，其它事件对应的是SocketChannel
-                        ServerSocketChannel ssc = (ServerSocketChannel) key.channel();
-                        SocketChannel socketChannel = ssc.accept();
-                        System.out.println("接收到客户数据包，来自[：" + socketChannel.socket().getInetAddress() + ":" + socketChannel.socket().getPort() + "]");
-                        socketChannel.configureBlocking(false);
-                        ByteBuffer buffer = ByteBuffer.allocate(4);
-                        socketChannel.register(selector, SelectionKey.OP_READ, buffer);
-                    }
                     if (key.isConnectable()) {
                         System.out.println("connect successfully...");
                         SocketChannel socketChannel = (SocketChannel) key.channel();
@@ -81,23 +72,34 @@ class Server implements AutoCloseable {
                         }
                         System.out.println("与客户端TCP连接建立成功，，来自[：" + socketChannel.socket().getInetAddress() + ":" + socketChannel.socket().getPort() + "]");
                     }
+                    if (key.isAcceptable()) {
+                        // OP_ACCEPT事件key中对应的是ServerSocketChannel，其它事件对应的是SocketChannel
+                        ServerSocketChannel ssc = (ServerSocketChannel) key.channel();
+                        SocketChannel socketChannel = ssc.accept();
+                        System.out.println("接收到客户数据包，来自[：" + socketChannel.socket().getInetAddress() + ":" + socketChannel.socket().getPort() + "]");
+                        socketChannel.configureBlocking(false);
+                        // 初始化缓冲区并放入key的附件
+                        ByteBuffer buffer = ByteBuffer.allocate(1024);
+                        socketChannel.register(selector, SelectionKey.OP_READ, buffer);
+                    }
                     if (key.isReadable()) {
                         System.out.println("准备读取客户端发送的数据...");
                         SocketChannel socketChannel = (SocketChannel) key.channel();
                         ByteBuffer buffer = (ByteBuffer) key.attachment();
+                        buffer.clear();
                         StringBuffer sb = new StringBuffer();
                         int readCount;
                         while ((readCount = socketChannel.read(buffer)) > 0) {
-                            System.out.println(readCount);
                             buffer.flip();
                             byte[] bytes = new byte[readCount];
                             buffer.get(bytes);
-                            // 拼接合并，针对客户端大报文在缓冲区存不下的情况
+                            // 拼接合并channel中读到的bytes，针对客户端发送大报文在缓冲区存不下的情况处理
                             sb.append(new String(bytes));
                             buffer.clear();
                         }
                         System.out.println("客户端发送报文:" + sb.toString());
 
+                        // 读取小于零代表客户端退出
                         if (readCount < 0) {
                             key.cancel();
                             socketChannel.close();
@@ -119,23 +121,17 @@ class Server implements AutoCloseable {
     private void doServerLogic(String requestStr, SelectionKey key) {
         SocketChannel socketChannel = (SocketChannel) key.channel();
         ByteBuffer buffer = (ByteBuffer) key.attachment();
-        byte[] responseBytes = ("【Server ECHO】: " + requestStr).getBytes(StandardCharsets.UTF_8);
-        int pos = 0;
-        while (pos < responseBytes.length) {
-            buffer.clear();
-            if (pos + buffer.remaining() < responseBytes.length) {
-                buffer.put(responseBytes, pos, buffer.remaining());
-                pos = pos + buffer.remaining();
-            } else {
-                buffer.put(responseBytes, pos, responseBytes.length - 1 - pos);
-                pos = responseBytes.length - 1;
-            }
-            buffer.flip();
-            try {
-                socketChannel.write(buffer);
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
+        byte[] responseBytes = ("【ECHO】: " + requestStr).getBytes(StandardCharsets.UTF_8);
+        // 写缓存前先清空
+        buffer.clear();
+        // NIO ByteBuffer的缺陷之一，固定长度不可变，需初始化分配较大空间
+        // Netty中的ByteBuf类是可变缓冲区，由于双指针设计，读写切换不需要flip()
+        buffer.put(responseBytes);
+        buffer.flip();
+        try {
+            socketChannel.write(buffer);
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
 
