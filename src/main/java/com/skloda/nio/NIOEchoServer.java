@@ -12,6 +12,8 @@ import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * @Author: jiangkun
@@ -21,7 +23,7 @@ import java.util.Set;
 public class NIOEchoServer {
     public static void main(String[] args) {
         try {
-            new Server(ServerInfo.SERVER_PORT).run();
+            new NIOServer(ServerInfo.SERVER_PORT).run();
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -29,14 +31,17 @@ public class NIOEchoServer {
 }
 
 /**
- * NIO Server
+ * NIO NIOServer
  */
-class Server implements AutoCloseable {
+class NIOServer implements AutoCloseable {
     private Selector selector;
     private ServerSocketChannel ssChannel;
     private volatile boolean stop = false;
+    // 虽然NIO理论上可以一个selector线程处理多个客户端请求
+    // 实践中还是使用线程池作为工作线程处理提高吞吐性能
+    private ExecutorService executorService = Executors.newFixedThreadPool(10);
 
-    Server(int port) {
+    NIOServer(int port) {
         try {
             //等价于 Selector selector = SelectorProvider.provider().openSelector();
             selector = Selector.open();
@@ -64,6 +69,7 @@ class Server implements AutoCloseable {
             while (it.hasNext()) {
                 SelectionKey key = it.next();
                 try {
+                    // NIO中一般只关注这2个事件，OP_CONNECT和OP_WRITABLE一般不需要关心
                     if (key.isAcceptable()) {
                         // OP_ACCEPT事件key中对应的是ServerSocketChannel，其它事件对应的是SocketChannel
                         ServerSocketChannel ssc = (ServerSocketChannel) key.channel();
@@ -72,7 +78,7 @@ class Server implements AutoCloseable {
                         socketChannel.configureBlocking(false);
                         // 初始化缓冲区并放入key的附件
                         ByteBuffer buffer = ByteBuffer.allocate(1024);
-                        // 为selector注册当前channel的读写事件
+                        // 为selector注册当前channel的读事件
                         socketChannel.register(selector, SelectionKey.OP_READ, buffer);
                     }
                     if (key.isReadable()) {
@@ -90,7 +96,27 @@ class Server implements AutoCloseable {
                             key.cancel();
                             socketChannel.close();
                         } else {
-                            doServerLogic(requestStr, key);
+                            executorService.submit(() -> {
+//                                try {
+//                                    // 模拟业务执行时间
+//                                    Thread.sleep(1000);
+//                                } catch (InterruptedException e) {
+//                                    e.printStackTrace();
+//                                }
+                                // 构造相应体
+                                byte[] responseBytes = ("【ECHO】: " + requestStr).getBytes(StandardCharsets.UTF_8);
+                                // 写缓存前必须先清空
+                                buffer.clear();
+                                // NIO ByteBuffer的缺陷之一，固定长度不可变，需初始化分配较大空间防止溢出
+                                // 对比Netty中的ByteBuf类是可变缓冲区无需关心缓存溢出问题，且切由于双指针设计读写切换不需要flip()
+                                buffer.put(responseBytes);
+                                buffer.flip();
+                                try {
+                                    socketChannel.write(buffer);
+                                } catch (IOException e) {
+                                    e.printStackTrace();
+                                }
+                            });
                         }
                     }
                 } catch (IOException e) {
@@ -102,28 +128,6 @@ class Server implements AutoCloseable {
         }
     }
 
-    private void doServerLogic(String requestStr, SelectionKey key) {
-        SocketChannel socketChannel = (SocketChannel) key.channel();
-        ByteBuffer buffer = (ByteBuffer) key.attachment();
-        try {
-            // 模拟业务执行时间
-            Thread.sleep(5000);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-        byte[] responseBytes = ("【ECHO】: " + requestStr).getBytes(StandardCharsets.UTF_8);
-        // 写缓存前先清空
-        buffer.clear();
-        // NIO ByteBuffer的缺陷之一，固定长度不可变，需初始化分配较大空间
-        // Netty中的ByteBuf类是可变缓冲区，由于双指针设计，读写切换不需要flip()
-        buffer.put(responseBytes);
-        buffer.flip();
-        try {
-            socketChannel.write(buffer);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
 
     @Override
     public void close() throws Exception {
