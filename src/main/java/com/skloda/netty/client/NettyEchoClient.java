@@ -1,5 +1,8 @@
 package com.skloda.netty.client;
 
+import com.skloda.netty.serializer.JSONDecoder;
+import com.skloda.netty.serializer.JSONEncoder;
+import com.skloda.netty.serializer.User;
 import com.skloda.util.ServerInfo;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.*;
@@ -8,8 +11,6 @@ import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import io.netty.handler.codec.LengthFieldPrepender;
-import io.netty.handler.codec.string.StringDecoder;
-import io.netty.handler.codec.string.StringEncoder;
 import io.netty.util.ReferenceCountUtil;
 
 /**
@@ -50,9 +51,12 @@ class NettyClient {
                             pipeline.addLast("frameDecoder", new LengthFieldBasedFrameDecoder(Integer.MAX_VALUE, 0, 4, 0, 4));
                             pipeline.addLast("frameEncoder", new LengthFieldPrepender(4));
                             // 注册处理字符串的一对编解码器
-                            pipeline.addLast(new StringEncoder());
-                            pipeline.addLast(new StringDecoder());
-                            // 注册自定义的逻辑处理ChannelInboundHandlerAdapter
+//                            pipeline.addLast(new StringEncoder());
+//                            pipeline.addLast(new StringDecoder());
+                            // 这2个是自定义的一对编解码器，可以直接读写对象，可以扩展实现自己的序列化和反序列化实现
+                            pipeline.addLast(new JSONEncoder());
+                            pipeline.addLast(new JSONDecoder());
+                            // 注册自定义的逻辑处理ChannelInboundHandlerAdapter，这个必须放在最后
                             pipeline.addLast(new EchoClientHandler());
                         }
                     });
@@ -76,15 +80,16 @@ class EchoClientHandler extends ChannelInboundHandlerAdapter {
     public void channelActive(ChannelHandlerContext ctx) throws Exception {
         System.out.println("channel就绪，准备发送数据");
         // Netty原生还是只能写ByteBuf，此处能直接写字符串原因是上面注册了StringEncoder
-        // 同理如果要写对象，也需要注册ObjectEncoder（可自己实现序列化和反序列化器)
-        ctx.writeAndFlush("Hello, Netty");
+        // 同理如果要写对象，也需要注册ObjectEncoder（此处我们基于fastjson自己实现了序列化和反序列化器)
+        ctx.writeAndFlush(new User(33, "jiangkun"));
     }
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         // 只要服务器端发送完成信息之后，都会执行此方法进行内容的输出操作
         try {
-            System.out.println(msg); // 输出服务器端的响应内容
+            User user = (User) msg;
+            System.out.println("服务端响应:" + user); // 输出服务器端的响应内容
         } finally {
             ReferenceCountUtil.release(msg); // 释放缓存
         }

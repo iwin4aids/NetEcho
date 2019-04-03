@@ -1,5 +1,8 @@
 package com.skloda.netty.server;
 
+import com.skloda.netty.serializer.JSONDecoder;
+import com.skloda.netty.serializer.JSONEncoder;
+import com.skloda.netty.serializer.User;
 import com.skloda.util.ServerInfo;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
@@ -7,8 +10,6 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import io.netty.handler.codec.LengthFieldPrepender;
-import io.netty.handler.codec.string.StringDecoder;
-import io.netty.handler.codec.string.StringEncoder;
 import io.netty.util.ReferenceCountUtil;
 
 /**
@@ -45,11 +46,14 @@ class NettyServer {
                         ChannelPipeline pipeline = channel.pipeline();
                         // 下面在pipeline中注册各种处理器（类似aop的前置拦截器，在从channel读取/写入内容时先执行解码/编码等拦截器实现公共逻辑）
                         // Netty解决TCP粘包问题的优雅方案，头部先写入4字节标识包的length
-                        pipeline.addLast("frameDecoder", new LengthFieldBasedFrameDecoder(Integer.MAX_VALUE, 0, 4, 0, 4));
-                        pipeline.addLast("frameEncoder", new LengthFieldPrepender(4));
+                        pipeline.addLast(new LengthFieldBasedFrameDecoder(Integer.MAX_VALUE, 0, 4, 0, 4));
+                        pipeline.addLast(new LengthFieldPrepender(4));
                         // 注册处理字符串的一对编解码器
-                        pipeline.addLast(new StringEncoder());
-                        pipeline.addLast(new StringDecoder());
+//                        pipeline.addLast(new StringEncoder());
+//                        pipeline.addLast(new StringDecoder());
+                        // 这2个是自定义的一对编解码器，可以直接读写对象，可以扩展实现自己的序列化和反序列化实现
+                        pipeline.addLast(new JSONEncoder());
+                        pipeline.addLast(new JSONDecoder());
                         // 注册自定义的逻辑处理ChannelInboundHandlerAdapter
                         pipeline.addLast(new EchoServerHandler());
                     }
@@ -81,8 +85,11 @@ class EchoServerHandler extends ChannelInboundHandlerAdapter {
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         try {
             System.out.println("接受到客户端请求消息:" + msg.toString());
-            String response = "【ECHO】" + msg.toString();
-            ctx.writeAndFlush(response); // 回应的输出操作
+            User user = (User)msg;
+            user.setAge(18);
+            user.setName("skloda");
+//            String response = msg.toString();
+            ctx.writeAndFlush(user); // 回应的输出操作
         } finally {
             ReferenceCountUtil.release(msg); // 释放缓存
         }
