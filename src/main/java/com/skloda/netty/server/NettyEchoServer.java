@@ -1,8 +1,6 @@
 package com.skloda.netty.server;
 
-import com.skloda.netty.serializer.JSONDecoder;
-import com.skloda.netty.serializer.JSONEncoder;
-import com.skloda.netty.serializer.User;
+import com.skloda.netty.serializer.*;
 import com.skloda.util.ServerInfo;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
@@ -11,6 +9,10 @@ import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import io.netty.handler.codec.LengthFieldPrepender;
 import io.netty.util.ReferenceCountUtil;
+
+import java.util.Arrays;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * @Author: jiangkun
@@ -33,9 +35,9 @@ class NettyServer {
 
     void run() {
         ServerBootstrap serverBootstrap = new ServerBootstrap();
-        // boss 对应 IOServer.java 中的接受新连接线程，主要负责创建新连接
+        // boss 对应 IOServer.java 中的接受新连接线程，主要负责轮询并创建新连接
         NioEventLoopGroup bossGroup = new NioEventLoopGroup();
-        // worker 对应 IOClient.java 中的负责读取数据的线程，主要用于读取数据以及业务逻辑处理
+        // worker 对应 IOClient.java 中的负责读取数据的线程，主要用于从channel读写数据
         NioEventLoopGroup workerGroup = new NioEventLoopGroup();
         serverBootstrap.group(bossGroup, workerGroup)
                 // 配置使用NIOServerSocketChannel
@@ -53,12 +55,13 @@ class NettyServer {
 //                        pipeline.addLast(new StringDecoder());
                         // 这2个是自定义的一对编解码器，可以直接读写对象，可以扩展实现自己的序列化和反序列化实现
                         pipeline.addLast(new JSONEncoder());
-                        pipeline.addLast(new JSONDecoder());
+                        pipeline.addLast(new JSONServerDecoder());
                         // 注册自定义的逻辑处理ChannelInboundHandlerAdapter
                         pipeline.addLast(new EchoServerHandler());
                     }
                 }).option(ChannelOption.SO_BACKLOG, 128)
-                .childOption(ChannelOption.SO_KEEPALIVE, true);
+                .childOption(ChannelOption.SO_KEEPALIVE, true)
+                .childOption(ChannelOption.TCP_NODELAY, true);
 
         try {
             ChannelFuture f = serverBootstrap.bind(port).sync();
@@ -79,20 +82,39 @@ class NettyServer {
  * @ChannelHandler.Sharable 标记该handler可以被多个channel共享
  */
 @ChannelHandler.Sharable
-class EchoServerHandler extends ChannelInboundHandlerAdapter {
+class EchoServerHandler extends SimpleChannelInboundHandler<RpcRequest> {
+
+    private ExecutorService executorService = Executors.newFixedThreadPool(20);
 
     @Override
-    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+    public void channelRead0(ChannelHandlerContext ctx, RpcRequest rpcRequest) throws Exception {
         try {
-            System.out.println("接受到客户端请求消息:" + msg.toString());
-            User user = (User)msg;
-            user.setAge(18);
-            user.setName("skloda");
-//            String response = msg.toString();
-            ctx.writeAndFlush(user); // 回应的输出操作
+            System.out.println("接受到客户端请求消息:" + rpcRequest);
+            // 这里可以调用业务处理线程池来处理增加并发处理能力，否则是单线程处理
+            executorService.submit(()->{
+                RpcResponse rpcResponse = doBussiness(rpcRequest);
+                ctx.writeAndFlush(rpcResponse); // 回应的输出操作
+            });
         } finally {
-            ReferenceCountUtil.release(msg); // 释放缓存
+            ReferenceCountUtil.release(rpcRequest); // 释放缓存
         }
+    }
+
+    /**
+     * 模拟一下业务操作
+     * @param rpcRequest 请求封装
+     * @return RpcResponse
+     */
+    private RpcResponse doBussiness(RpcRequest rpcRequest) {
+        Object[] args = rpcRequest.getArgs();
+        ResponseDTO dto = new ResponseDTO(Arrays.toString(args), Arrays.asList("admin", "operator"));
+        try {
+            // 模拟服务端业务处理耗时
+            Thread.sleep(1000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        return new RpcResponse(rpcRequest.getRequestId(), 200, dto);
     }
 
     @Override
