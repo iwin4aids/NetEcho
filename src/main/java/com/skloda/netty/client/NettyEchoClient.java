@@ -127,6 +127,12 @@ class NettyClient {
         }
     }
 
+    /**
+     * 封装的远程调用方法，核心方法是channel.writeAndFlush
+     * 同步调用：此处应使用锁，等待channelRead事件发生时唤醒对应的锁来实现
+     * @param rpcRequest 封装的rpc请求对象
+     * @return 响应对象
+     */
     public RpcResponse doInvoke(RpcRequest rpcRequest) {
         this.channel.writeAndFlush(rpcRequest);
         System.out.println("客户端请求报文:" + rpcRequest);
