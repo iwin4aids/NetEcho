@@ -11,7 +11,7 @@ import java.nio.file.StandardOpenOption;
 
 /**
  * @Author: jiangkun
- * @Description: 使用原生java.io.stream和java.niobackup.channel操作文件，底层是一样的实现
+ * @Description: 使用原生java.io.stream和java.nio.channel操作文件，底层其实是一样的实现
  * @Date: Created in 2019-03-29 23:47
  */
 public class FileOperationUtil {
