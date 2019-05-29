@@ -4,10 +4,7 @@ import com.skloda.netty.serializer.RpcRequest;
 import com.skloda.netty.serializer.RpcResponse;
 import lombok.Data;
 
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -57,6 +54,7 @@ public class RpcContext {
         this.isDone = true;
         try {
             lock.lock();
+            // 已填充了响应，此时可以唤醒阻塞线程返回结果了
             condition.signal();
         } catch (Exception e) {
             e.printStackTrace();

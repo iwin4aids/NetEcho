@@ -106,6 +106,7 @@ class EchoServerHandler extends SimpleChannelInboundHandler<RpcRequest> {
      * @return RpcResponse
      */
     private RpcResponse doBussiness(RpcRequest rpcRequest) {
+        // 这里从rpcRequest可以获取方法名、参数等等信息进行服务端反射调用
         Object[] args = rpcRequest.getArgs();
         ResponseDTO dto = new ResponseDTO(Arrays.toString(args), Arrays.asList("admin", "operator"));
         try {
