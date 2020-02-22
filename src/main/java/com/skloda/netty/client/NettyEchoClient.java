@@ -137,6 +137,7 @@ class NettyClient {
         this.channel.writeAndFlush(rpcRequest);
         System.out.println("客户端请求报文:" + rpcRequest);
         RpcContext rpcContext = new RpcContext(rpcRequest);
+        // uuid作为key放在全局map内存保存
         RpcContextHolder.put(rpcRequest.getRequestId(), rpcContext);
         return rpcContext.get(); // 这里会阻塞
     }
